@@ -76,11 +76,11 @@ class ViaBillServices {
         'cancel_url',
         'callback_url',
         'test',
-        'md5check',
+        'sha256check',
         'tbyb'
       ],
       'optional_fields' => ['customParams', 'cartParams'],
-      'md5check'        => '{apikey}#{amount}#{currency}#{transaction}#{order_number}#{success_url}#{cancel_url}#{secret}',
+      'sha256check'        => '{apikey}#{amount}#{currency}#{transaction}#{order_number}#{success_url}#{cancel_url}#{secret}',
       'status_codes'    => [
         200 => 'messages.viabillApiMessages.successfulRequest',
         204 => 'messages.viabillApiMessages.noContentResponse',
@@ -187,7 +187,7 @@ class ViaBillServices {
 
       foreach ($ed['required_fields'] as $field) {
         $isTest = ($field === 'test');
-        // Check for signature/md5check fields.
+        // Check for signature/sha256check fields.
         if (array_key_exists($field, $ed)) {
           $format = $ed[$field];
           // Parse the format to generate a signature if one is required.
@@ -197,9 +197,11 @@ class ViaBillServices {
           catch (\Exception $e) {
             $error_msg = 'Error parsing format: ' . $e->getMessage();
             ViaBillHelper::log($error_msg, 'error');
-            return FALSE;
+            return FALSE;          
           }
-          $requestData[$field] = md5($format);
+          if (!isset($requestData[$field]) || empty($requestData[$field])) {
+            $requestData[$field] = hash('sha256', $format);
+          }          
           // Process the remaining required fields.
         }
         elseif (array_key_exists($field, $data)) {

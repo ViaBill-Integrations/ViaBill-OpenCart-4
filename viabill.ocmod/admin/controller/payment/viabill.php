@@ -200,13 +200,8 @@ class Viabill extends \Opencart\System\Engine\Controller {
 
         if (!empty($key) && !empty($secret)) {
             // Get myviabill endpoint
-            $myviabill_endpoint = ViaBillServices::getApiEndPoint('myviabill');
-
-            if (ViaBillConstants::PROTOCOL == '3.0') {                
-                $signature = md5($key . '#' . $secret);
-            } else {                
-                $signature = hash('sha256', $key . '#' . $secret);
-            }            
+            $myviabill_endpoint = ViaBillServices::getApiEndPoint('myviabill');                         
+            $signature = hash('sha256', $key . '#' . $secret);            
 
             // Prepare  data
             $myviabill_data = [
@@ -242,13 +237,8 @@ class Viabill extends \Opencart\System\Engine\Controller {
 
         if (!empty($key) && !empty($secret)) {
             // Get notifications endpoint
-            $notifications_endpoint = ViaBillServices::getApiEndPoint('notifications');
-
-            if (ViaBillConstants::PROTOCOL == '3.0') {                
-                $signature = md5($key . '#' . $secret);
-            } else {                
-                $signature = hash('sha256', $key . '#' . $secret);
-            }            
+            $notifications_endpoint = ViaBillServices::getApiEndPoint('notifications');                
+            $signature = hash('sha256', $key . '#' . $secret);            
 
             // Prepare  data
             $notifications_data = [

@@ -156,25 +156,35 @@ class Viabill extends \Opencart\System\Engine\Controller {
         $cancel_url = $this->url->link('extension/viabill/payment/viabill.cancel', 'order_id=' . $order_id, true);
         $callback_url = $this->url->link('extension/viabill/payment/viabill.callback', '', true);
 
-        // Compute MD5 checksum for integrity (using a combination of fields and secret)
-        $signature_data = [
-            $apiKey,
-            $amount,
-            $currency,
-            $transactionId,
-            $order_id,
-            $success_url,
-            $cancel_url,
-            $secret,
-        ];
-                
-        if (ViaBillConstants::PROTOCOL == '3.0') {
-            $checksum_key = 'md5check';
-            $checksum_value = md5(implode('#', $signature_data));
+        // Compute SHA256 checksum for integrity (using a combination of fields and secret)        
+        $testModeEnabled = ($testMode == ViaBillConstants::TEST_MODE_ON) ? true : false;
+        if ($testModeEnabled) {
+            $signature_data = [
+                $apiKey,
+                $amount,
+                $currency,
+                $transactionId,
+                $order_id,
+                $success_url,
+                $cancel_url,
+                $secret,
+                'true'
+            ];
         } else {
-            $checksum_key = '"sha256check';
-            $checksum_value = hash('sha256', implode('#', $signature_data));
+            $signature_data = [
+                $apiKey,
+                $amount,
+                $currency,
+                $transactionId,
+                $order_id,
+                $success_url,
+                $cancel_url,
+                $secret,
+            ];
         }
+                                
+        $checksum_input = trim(implode('#', $signature_data));	
+        $checksum_value = hash('sha256', $checksum_input);        
         
         // Assemble data for POST to ViaBill's checkout-authorize API
         $request_data = [
@@ -191,18 +201,25 @@ class Viabill extends \Opencart\System\Engine\Controller {
             'test'         => $testMode,
             'customParams' => $customer,
             // 'cartParams'   => json_encode($cart),
-            $checksum_key  => $checksum_value,
+            'sha256check'  => $checksum_value,
             'tbyb'         => $tbybValue,            
-        ];        
+        ];                
         
         // Before redirecting, add an initial order history entry with "Pending" status (or a custom status like "Awaiting Payment")
-        $pendingStatusId = $this->config->get('config_order_status_id');  // default store pending status
-        $this->model_checkout_order->addOrderHistory($order_id, $pendingStatusId, 'ViaBill payment initiated. Transaction: ' . $transactionId, false);
+        $pendingStatusId = $this->config->get('config_order_status_id');  // default store pending status        
+
+        $this->model_checkout_order->addHistory(
+            (int)$order_id,
+            $pendingStatusId,
+            'ViaBill payment initiated. Transaction: ' . $transactionId,
+            false,   // notify customer?
+            false    // override fraud / status checks
+        );
         
         $checkout_endpoint = ViaBillServices::getEndPointData('checkout', $request_data);                
                 
         // Send the checkout-authorize request to ViaBill
-        $viaResponse = ViaBillHelper::sendApiRequest($checkout_endpoint['endpoint'], $checkout_endpoint['data']);        
+        $viaResponse = ViaBillHelper::sendApiRequest($checkout_endpoint['endpoint'], $request_data); // instead of: $checkout_endpoint['data']       
 
         if (!empty($viaResponse['redirect_url'])) {
             // Store the generated transaction ID in our database for reference (log it)
@@ -296,13 +313,8 @@ class Viabill extends \Opencart\System\Engine\Controller {
                 $time,
                 $secret
             ];
-
-            if (ViaBillConstants::PROTOCOL == '3.0') {                
-                $calculated_signature = md5(implode('#', $validation_arguments));
-            } else {                
-                $calculated_signature = hash('sha256', implode('#', $validation_arguments));
-            }
-
+                         
+            $calculated_signature = hash('sha256', implode('#', $validation_arguments));        
             if ($callback_signature != $calculated_signature) {
                 $debug_str = print_r($callbackData, true);
                 ViaBillHelper::log('Received an invalid callback request:'.$debug_str, 'error');

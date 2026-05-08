@@ -7,7 +7,7 @@ namespace Opencart\System\Helper\Extension\Viabill;
  */
 final class ViaBillConstants {
   
-  public const PROTOCOL = '3.0';
+  public const PROTOCOL = '3.1';
   public const AFFILIATE = 'open_cart';
   public const TRANSACTION_TYPE_AUTHORIZE_ONLY = 'authorize_only';
   public const TRANSACTION_TYPE_AUTHORIZE_CAPTURE = 'authorize_capture';
