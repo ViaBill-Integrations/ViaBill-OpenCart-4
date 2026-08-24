@@ -156,8 +156,8 @@ class Viabill extends \Opencart\System\Engine\Controller {
         $cancel_url = $this->url->link('extension/viabill/payment/viabill.cancel', 'order_id=' . $order_id, true);
         $callback_url = $this->url->link('extension/viabill/payment/viabill.callback', '', true);
 
-        // Compute SHA256 checksum for integrity (using a combination of fields and secret)        
-        $testModeEnabled = ($testMode == ViaBillConstants::TEST_MODE_ON) ? true : false;
+        // Compute SHA256 checksum for integrity (using a combination of fields and secret)
+        $testModeEnabled = (($testMode == true)||($testMode == 'true'))?true:false;
         if ($testModeEnabled) {
             $signature_data = [
                 $apiKey,
@@ -182,9 +182,10 @@ class Viabill extends \Opencart\System\Engine\Controller {
                 $secret,
             ];
         }
-                                
-        $checksum_input = trim(implode('#', $signature_data));	
-        $checksum_value = hash('sha256', $checksum_input);        
+        
+                
+        $checksum_key = '"sha256check';
+        $checksum_value = hash('sha256', implode('#', $signature_data));        
         
         // Assemble data for POST to ViaBill's checkout-authorize API
         $request_data = [
@@ -201,9 +202,9 @@ class Viabill extends \Opencart\System\Engine\Controller {
             'test'         => $testMode,
             'customParams' => $customer,
             // 'cartParams'   => json_encode($cart),
-            'sha256check'  => $checksum_value,
+            $checksum_key  => $checksum_value,
             'tbyb'         => $tbybValue,            
-        ];                
+        ];        
         
         // Before redirecting, add an initial order history entry with "Pending" status (or a custom status like "Awaiting Payment")
         $pendingStatusId = $this->config->get('config_order_status_id');  // default store pending status        
@@ -219,7 +220,7 @@ class Viabill extends \Opencart\System\Engine\Controller {
         $checkout_endpoint = ViaBillServices::getEndPointData('checkout', $request_data);                
                 
         // Send the checkout-authorize request to ViaBill
-        $viaResponse = ViaBillHelper::sendApiRequest($checkout_endpoint['endpoint'], $request_data); // instead of: $checkout_endpoint['data']       
+        $viaResponse = ViaBillHelper::sendApiRequest($checkout_endpoint['endpoint'], $checkout_endpoint['data']);        
 
         if (!empty($viaResponse['redirect_url'])) {
             // Store the generated transaction ID in our database for reference (log it)

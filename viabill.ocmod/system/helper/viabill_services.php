@@ -14,30 +14,6 @@ class ViaBillServices {
 
   // These endpoints contain references to the addon name.
   const API_END_POINTS = [
-    'login'               => [
-      'endpoint'        => '/api/addon/ADDON_NAME/login',
-      'method'          => 'POST',
-      'required_fields' => ['email', 'password'],
-      'optional_fields' => [],
-      'status_codes'    => [
-        200 => 'messages.viabillApiMessages.successfulRequest',
-        400 => 'messages.viabillApiMessages.requestError',
-        500 => 'messages.viabillApiMessages.apiServerError',
-      ],
-      'signature'       => NULL,
-    ],
-    'registration'        => [
-      'endpoint'        => '/api/addon/ADDON_NAME/register',
-      'method'          => 'POST',
-      'required_fields' => ['email', 'name', 'url', 'country'],
-      'optional_fields' => ['taxId', 'affiliate', 'additionalInfo'],
-      'status_codes'    => [
-        200 => 'messages.viabillApiMessages.successfulRequest',
-        400 => 'messages.viabillApiMessages.requestError',
-        500 => 'messages.viabillApiMessages.apiServerError',
-      ],
-      'signature'       => NULL,
-    ],
     'myviabill'           => [
       'endpoint'        => '/api/addon/ADDON_NAME/myviabill',
       'method'          => 'GET',
@@ -197,11 +173,9 @@ class ViaBillServices {
           catch (\Exception $e) {
             $error_msg = 'Error parsing format: ' . $e->getMessage();
             ViaBillHelper::log($error_msg, 'error');
-            return FALSE;          
+            return FALSE;
           }
-          if (!isset($requestData[$field]) || empty($requestData[$field])) {
-            $requestData[$field] = hash('sha256', $format);
-          }          
+          $requestData[$field] = hash('sha256', $format);
           // Process the remaining required fields.
         }
         elseif (array_key_exists($field, $data)) {

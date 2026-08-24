@@ -30,6 +30,9 @@
         <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
       </div>
     {% endif %}
+    {% if credentials_missing %}
+      <div class="alert alert-warning"><i class="fa-solid fa-exclamation-circle"></i> {{ text_credentials_missing }}</div>
+    {% endif %}
     
     <div class="card">
       <div class="card-header"><i class="fa-solid fa-cog"></i> {{ text_edit }}</div>
@@ -50,19 +53,38 @@
           <!-- ======== General Settings ======== -->
           <div class="tab-pane fade show active" id="tab-general">   
 
-            <div class="row mb-3">
+            <fieldset class="mb-4">
+              <legend>{{ text_credentials }}</legend>
+
+              <div class="alert alert-info"><i class="fa-solid fa-info-circle"></i> {{ text_credentials_intro }}</div>
+
+              <div class="row mb-3">
                 <label class="col-sm-2 col-form-label" for="input-api-key">{{ entry_api_key }}</label>
                 <div class="col-sm-10">
-                  <input type="text" name="payment_viabill_api_key" value="{{ payment_viabill_api_key }}" id="input-api-key" class="form-control" />
+                  <input type="text" name="payment_viabill_api_key" value="{{ payment_viabill_api_key }}" id="input-api-key" class="form-control" autocomplete="off" required />
                 </div>
-            </div>
-
-            <div class="row mb-3">
-              <label class="col-sm-2 col-form-label" for="input-secret-key">{{ entry_secret_key }}</label>
-              <div class="col-sm-10">
-                <input type="text" name="payment_viabill_secret_key" value="{{ payment_viabill_secret_key }}" id="input-secret-key" class="form-control" />
               </div>
-            </div>
+
+              <div class="row mb-3">
+                <label class="col-sm-2 col-form-label" for="input-secret-key">{{ entry_secret_key }}</label>
+                <div class="col-sm-10">
+                  <input type="password" name="payment_viabill_secret_key" value="" id="input-secret-key" class="form-control" autocomplete="new-password"{% if secret_key_exists %} placeholder="********"{% else %} required{% endif %} />
+                  {% if secret_key_exists %}
+                    <div class="form-text">{{ help_secret_key_saved }}</div>
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="row mb-3">
+                <label class="col-sm-2 col-form-label" for="input-pricetag">{{ entry_pricetag }}</label>
+                <div class="col-sm-10">
+                  <textarea name="payment_viabill_pricetag" rows="5" id="input-pricetag" class="form-control" required>{{ payment_viabill_pricetag }}</textarea>
+                  {% if entry_pricetag_help %}
+                    <div class="form-text">{{ entry_pricetag_help }}</div>
+                  {% endif %}
+                </div>
+              </div>
+            </fieldset>
             
             <div class="row mb-3">
               <label class="col-sm-2 col-form-label" for="input-test-mode">{{ entry_test_mode }}</label>
@@ -164,16 +186,6 @@
           <div class="tab-pane fade" id="tab-pricetag">            
             <fieldset class="mb-4">
               <legend>{{ entry_pricetag_common }}</legend>
-
-              <div class="row mb-3">
-                <label class="col-sm-2 col-form-label" for="input-pricetag">{{ entry_pricetag }}</label>
-                <div class="col-sm-10">
-                  <textarea name="payment_viabill_pricetag" rows="5" id="input-pricetag" class="form-control">{{ payment_viabill_pricetag }}</textarea>
-                  {% if entry_pricetag_help %}
-                    <div class="form-text">{{ entry_pricetag_help }}</div>
-                  {% endif %}
-                </div>
-              </div>
 
               <div class="row mb-3">
                 <label class="col-sm-2 col-form-label" for="input-pricetag-language">{{ entry_pricetag_language }}</label>
