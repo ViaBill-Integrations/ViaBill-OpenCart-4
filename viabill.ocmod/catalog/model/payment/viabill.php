@@ -5,6 +5,9 @@
  */
 namespace Opencart\Catalog\Model\Extension\Viabill\Payment;
 
+use Opencart\System\Helper\Extension\Viabill\ViaBillHelper;
+use Opencart\System\Helper\Extension\Viabill\ViaBillServices;
+
 class Viabill extends \Opencart\System\Engine\Model {
     /**
      * Determine if this payment method should be available
@@ -127,35 +130,40 @@ class Viabill extends \Opencart\System\Engine\Model {
         }
     }
 
-    private function loadViabillHelpers() {
-        require_once(DIR_SYSTEM . 'library/viabill/viabill_constants.php');
-        require_once(DIR_SYSTEM . 'library/viabill/viabill_services.php');
-        require_once(DIR_SYSTEM . 'library/viabill/viabill_helper.php');
+    private function loadViabillHelpers(): void {
+        $this->load->helper('extension/viabill/viabill_constants');
+        $this->load->helper('extension/viabill/viabill_services');
+        $this->load->helper('extension/viabill/viabill_helper');
+
+        ViaBillServices::setRegistry($this->registry);
     }
 
     /**
      * Capture a previously authorized ViaBill transaction.
-     * @param array $capture_data The data used for the capture request.     
-     * @return bool success
+     *
+     * @param string $transaction_id The ViaBill transaction id
+     * @param string $amount The amount to capture, formatted with 2 decimals
+     * @param string $currency The currency code
+     * @return array ['success' => bool, 'message' => string]
      */
-    public function capturePayment($capture_data): array {
-        // Load language class
-        $this->load->language('extension/payment/viabill');
-        
-        // Load helper classes
+    public function capturePayment(string $transaction_id, string $amount, string $currency): array {
         $this->loadViabillHelpers();
-    
-        $registry = $this->registry;
-        ViaBillServices::setRegistry($registry);        
-        
-        // Endpoint for capture
-        $capture_endpoint = ViaBillServices::getApiEndPoint('capture_transaction');        
-        $response = ViaBillHelper::sendApiRequest($capture_endpoint['endpoint'], $capture_data, $capture_endpoint['method']);
-        if ($response['status'] == 'success') {                        
-            return ['success' => true];
-        } else {
-            // Log or handle capture failure
-            return ['success' => false];
+
+        $response = ViaBillServices::request('capture_transaction', [
+            'id'       => $transaction_id,
+            'apikey'   => (string)$this->config->get('payment_viabill_api_key'),
+            'secret'   => (string)$this->config->get('payment_viabill_secret_key'), // used for the signature only
+            'amount'   => $amount,
+            'currency' => $currency,
+        ]);
+
+        if (ViaBillHelper::isSuccessfulResponse($response)) {
+            return ['success' => true, 'message' => ''];
         }
+
+        $httpCode = isset($response['http_code']) ? (int)$response['http_code'] : 0;
+        $details = $response['message'] ?? ($response['body'] ?? '');
+
+        return ['success' => false, 'message' => 'HTTP ' . $httpCode . ': ' . $details];
     }
 }

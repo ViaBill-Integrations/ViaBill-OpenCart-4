@@ -175,6 +175,11 @@ class ViaBillServices {
             ViaBillHelper::log($error_msg, 'error');
             return FALSE;
           }
+          // For test checkouts ViaBill expects the test flag after the
+          // secret in the signed string (callbacks never carry it).
+          if ($field === 'sha256check' && filter_var($testMode, FILTER_VALIDATE_BOOLEAN)) {
+            $format .= '#true';
+          }
           $requestData[$field] = hash('sha256', $format);
           // Process the remaining required fields.
         }
@@ -222,6 +227,30 @@ class ViaBillServices {
     return FALSE;
   }
 
+  /**
+   * Build and send a request to a ViaBill API end point.
+   *
+   * The request body is built by getEndPointData() from the end point's
+   * declared fields only, and its signature is calculated there. The API
+   * secret is used for the signature but is never sent to ViaBill.
+   *
+   * @param string $endPoint The end point name, e.g. 'capture_transaction'
+   * @param array $data The request values (may include 'secret' for signing)
+   * @return array The sendApiRequest() result, or an error result
+   */
+  public static function request(string $endPoint, array $data): array {
+    $endPointData = self::getEndPointData($endPoint, $data);
+
+    if (empty($endPointData)) {
+      return [
+        'status' => 'error',
+        'message' => 'Could not build the ' . $endPoint . ' request.',
+      ];
+    }
+
+    return ViaBillHelper::sendApiRequest($endPointData['endpoint'], $endPointData['data'], $endPointData['method']);
+  }
+
   public static function getApiEndPoint($end_point) {
     // Check if the default ADDON name is still used.
     $addon_name = self::ADDON_NAME;
@@ -241,9 +270,9 @@ class ViaBillServices {
 
       return $end_point_settings;
     }
-    else {
-      exit("Unknown API End Point: $end_point");
-    }
+    // Unknown end point: log it and let the caller handle the failure,
+    // instead of terminating the request.
+    ViaBillHelper::log('Unknown API End Point: ' . $end_point, 'error');
 
     return FALSE;
   }

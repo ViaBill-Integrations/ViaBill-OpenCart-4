@@ -9,6 +9,16 @@ final class ViaBillConstants {
   
   public const PROTOCOL = '3.1';
   public const AFFILIATE = 'open_cart';
+
+  // Seconds to wait for a connection to / a complete answer from the ViaBill API.
+  public const API_CONNECT_TIMEOUT = 10;
+  public const API_TIMEOUT = 30;
+
+  // ViaBill transaction states stored in the viabill_transaction table.
+  public const TX_STATUS_INITIATED = 'INITIATED';
+  public const TX_STATUS_PAID = 'PAID';
+  public const TX_STATUS_CANCELLED = 'CANCELLED';
+  public const TX_STATUS_VOIDED = 'VOIDED';
   public const TRANSACTION_TYPE_AUTHORIZE_ONLY = 'authorize_only';
   public const TRANSACTION_TYPE_AUTHORIZE_CAPTURE = 'authorize_capture';
   public const TEST_MODE_ON = 'true';

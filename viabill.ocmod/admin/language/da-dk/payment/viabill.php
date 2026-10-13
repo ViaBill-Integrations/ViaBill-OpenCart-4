@@ -80,6 +80,10 @@ $_['text_credentials'] = 'ViaBill kontooplysninger';
 $_['text_credentials_intro'] = 'Indtast din ViaBill API-nøgle, API-hemmelighed og PriceTag-script. Du finder disse værdier på din ViaBill-forhandlerkonto. Alle tre værdier er nødvendige, for at betalingsmodulet og PriceTags virker.';
 $_['text_credentials_missing'] = 'Dine ViaBill kontooplysninger mangler. Indtast venligst din API-nøgle, API-hemmelighed og PriceTag-script i sektionen "ViaBill kontooplysninger" nedenfor.';
 $_['help_secret_key_saved'] = 'En API-hemmelighed er allerede gemt (skjult af sikkerhedshensyn). Lad feltet være tomt for at beholde den.';
+// Signup note shown below the credentials while they are missing
+$_['text_signup_title'] = 'Har du endnu ikke dine ViaBill-kontooplysninger?';
+$_['text_signup_text'] = 'Udfyld ViaBills online tilmeldingsformular for at få din API-nøgle, din API-hemmelighed og dit PriceTag-script.';
+$_['text_signup_link'] = 'Gå til ViaBills tilmeldingsformular';
 
 // Buttons
 $_['button_save']            = 'Gem';
@@ -89,3 +93,15 @@ $_['button_cancel']          = 'Annuller';
 $_['error_permission']       = 'Advarsel: Du har ikke tilladelse til at ændre ViaBill Betalinger!';
 $_['error_api_key']          = 'API-nøgle er påkrævet!';
 $_['error_secret_key']       = 'API Secret er påkrævet!';
+$_['error_amount']           = 'Indtast venligst et gyldigt beløb større end 0.';
+
+// Order history comments and payment action messages
+$_['error_no_transaction'] = 'Der blev ikke fundet nogen ViaBill-transaktion for denne ordre.';
+$_['error_capture_amount_range'] = 'Beløbet, der skal hæves, skal være større end 0 og højst %s.';
+$_['error_refund_amount_range'] = 'Beløbet, der skal krediteres, skal være større end 0 og højst %s.';
+$_['error_void_captured'] = 'Betalingen er allerede (delvist) hævet og kan ikke længere annulleres. Brug i stedet en kreditering.';
+$_['error_api_http'] = 'ViaBill svarede med HTTP %d.';
+$_['error_api_unreachable'] = 'Der kunne ikke oprettes forbindelse til ViaBill.';
+$_['text_history_captured'] = 'ViaBill-betaling hævet: %s %s';
+$_['text_history_refunded'] = 'ViaBill-betaling krediteret: %s %s';
+$_['text_history_voided'] = 'ViaBill-autorisation annulleret';

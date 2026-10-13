@@ -70,11 +70,13 @@ class Viabill extends \Opencart\System\Engine\Controller {
      */
     public function confirm(): void {
         
-        // Ensure the payment method is this module
-        if (($this->session->data['payment_method']['code'] != 'viabill.viabill_bnpl') && 
-            ($this->session->data['payment_method']['code'] != 'viabill.viabill_tbyb')) {
+        // Ensure there is an order and the payment method is this module
+        $payment_code = $this->session->data['payment_method']['code'] ?? '';
+
+        if (empty($this->session->data['order_id']) ||
+            ($payment_code != 'viabill.viabill_bnpl' && $payment_code != 'viabill.viabill_tbyb')) {
             return;
-        }        
+        }
 
         // Load language class
         $this->load->language('extension/viabill/payment/viabill');
@@ -92,7 +94,7 @@ class Viabill extends \Opencart\System\Engine\Controller {
         ViaBillServices::setRegistry($registry);
         
         // Get order info
-        $order_id = $this->session->data['order_id'];
+        $order_id = (int)$this->session->data['order_id'];
         $order_info = $this->model_checkout_order->getOrder($order_id);
         if (!$order_info) {
             // If order not found (should not happen at this stage), redirect to checkout
@@ -108,7 +110,7 @@ class Viabill extends \Opencart\System\Engine\Controller {
         $secret    = $this->config->get('payment_viabill_secret_key');
         $currency  = $order_info['currency_code'];
         $amount    = number_format($order_info['total'], 2, '.', '');  // total amount formatted as e.g. 100.00
-        $transactionId = 'via-' . $order_id . '-' . substr(md5(rand()), 0, 6);  // Generate a unique transaction reference (via-<orderid>-<random>)
+        $transactionId = 'via-' . $order_id . '-' . ViaBillHelper::generateRandomString(6);  // Generate a unique transaction reference (via-<orderid>-<random>, random_int based)
         
         // Prepare customer info for customParams (e.g., name, email, phone)
         $address = empty($order_info['payment_address_1'])?$order_info['shipping_address_1']:$order_info['payment_address_1'];
@@ -144,11 +146,9 @@ class Viabill extends \Opencart\System\Engine\Controller {
         // Determine environment
         $testMode = $this->config->get('payment_viabill_test') ? ViaBillConstants::TEST_MODE_ON : ViaBillConstants::TEST_MODE_OFF;
         
-        // Try-Before-You-Buy flag (assuming not used by default)
-        $tbybValue = ViaBillConstants::TBYB_OFF;  
-        if ($this->session->data['payment_method']['code'] != 'viabill.viabill_tbyb') {
-            $tbybValue = ViaBillConstants::TBYB_ON;
-        }
+        // Try-Before-You-Buy flag: only on when the customer chose the TBYB option
+        $isTbyb = ($payment_code == 'viabill.viabill_tbyb');
+        $tbybValue = $isTbyb ? ViaBillConstants::TBYB_ON : ViaBillConstants::TBYB_OFF;
         $platformValue = ViaBillConstants::AFFILIATE;  // Identify the platform (ViaBill may expect the platform name)
 
         // URLs
@@ -156,38 +156,9 @@ class Viabill extends \Opencart\System\Engine\Controller {
         $cancel_url = $this->url->link('extension/viabill/payment/viabill.cancel', 'order_id=' . $order_id, true);
         $callback_url = $this->url->link('extension/viabill/payment/viabill.callback', '', true);
 
-        // Compute SHA256 checksum for integrity (using a combination of fields and secret)
-        $testModeEnabled = (($testMode == true)||($testMode == 'true'))?true:false;
-        if ($testModeEnabled) {
-            $signature_data = [
-                $apiKey,
-                $amount,
-                $currency,
-                $transactionId,
-                $order_id,
-                $success_url,
-                $cancel_url,
-                $secret,
-                'true'
-            ];
-        } else {
-            $signature_data = [
-                $apiKey,
-                $amount,
-                $currency,
-                $transactionId,
-                $order_id,
-                $success_url,
-                $cancel_url,
-                $secret,
-            ];
-        }
-        
-                
-        $checksum_key = '"sha256check';
-        $checksum_value = hash('sha256', implode('#', $signature_data));        
-        
-        // Assemble data for POST to ViaBill's checkout-authorize API
+        // Assemble data for POST to ViaBill's checkout-authorize API. The
+        // sha256check checksum (protocol 3.1, with "#true" appended in test
+        // mode) is calculated from these values by ViaBillServices::getEndPointData().
         $request_data = [
             'protocol'     => ViaBillConstants::PROTOCOL, 
             'order_number' => $order_id,
@@ -202,29 +173,30 @@ class Viabill extends \Opencart\System\Engine\Controller {
             'test'         => $testMode,
             'customParams' => $customer,
             // 'cartParams'   => json_encode($cart),
-            $checksum_key  => $checksum_value,
             'tbyb'         => $tbybValue,            
         ];        
         
         // Before redirecting, add an initial order history entry with "Pending" status (or a custom status like "Awaiting Payment")
-        $pendingStatusId = $this->config->get('config_order_status_id');  // default store pending status        
+        $pendingStatusId = (int)$this->config->get('config_order_status_id');  // default store pending status
 
         $this->model_checkout_order->addHistory(
             (int)$order_id,
             $pendingStatusId,
-            'ViaBill payment initiated. Transaction: ' . $transactionId,
+            sprintf($this->language->get('text_history_initiated'), $transactionId),
             false,   // notify customer?
             false    // override fraud / status checks
         );
         
-        $checkout_endpoint = ViaBillServices::getEndPointData('checkout', $request_data);                
-                
+        // The request body is built from the declared checkout fields only:
+        // the API secret is used for the checksum but never sent.
+        $checkout_endpoint = ViaBillServices::getEndPointData('checkout', $request_data);
+
         // Send the checkout-authorize request to ViaBill
-        $viaResponse = ViaBillHelper::sendApiRequest($checkout_endpoint['endpoint'], $checkout_endpoint['data']);        
+        $viaResponse = $checkout_endpoint ? ViaBillHelper::sendApiRequest($checkout_endpoint['endpoint'], $checkout_endpoint['data'], $checkout_endpoint['method']) : [];
 
         if (!empty($viaResponse['redirect_url'])) {
             // Store the generated transaction ID in our database for reference (log it)
-            $this->db->query("INSERT INTO `" . DB_PREFIX . "viabill_transaction` SET order_id = " . (int)$order_id . ", transaction_id = '" . $this->db->escape($transactionId) . "', amount = '" . $this->db->escape($amount) . "', currency = '" . $this->db->escape($currency) . "', status = 'INITIATED'");
+            $this->db->query("INSERT INTO `" . DB_PREFIX . "viabill_transaction` SET order_id = " . (int)$order_id . ", transaction_id = '" . $this->db->escape($transactionId) . "', amount = '" . $this->db->escape($amount) . "', currency = '" . $this->db->escape($currency) . "', `type` = '" . ($isTbyb ? 'tbyb' : 'bnpl') . "', status = '" . $this->db->escape(ViaBillConstants::TX_STATUS_INITIATED) . "', date_added = NOW(), date_modified = NOW()");
             // Redirect the customer to ViaBill's payment page
             // $this->response->redirect($viaResponse['redirect_url']);
                 
@@ -234,7 +206,10 @@ class Viabill extends \Opencart\System\Engine\Controller {
             // Make sure to encode the JSON properly
             $this->response->setOutput(json_encode($json));
         } else {
-            // If no redirect URL returned or an error occurred, handle gracefully            
+            // If no redirect URL returned or an error occurred, handle gracefully
+            ViaBillHelper::log('Checkout request failed for order #' . $order_id . ' [HTTP ' . (int)($viaResponse['http_code'] ?? 0) . ']: ' . ($viaResponse['message'] ?? ($viaResponse['body'] ?? '')), 'error');
+
+            $json = [];
             $json['error'] = $this->language->get('error_payment_failed');
             
             // Always set proper headers
@@ -250,164 +225,229 @@ class Viabill extends \Opencart\System\Engine\Controller {
      * It should update the order status accordingly.
      */
     public function callback(): void {
-        // Load helper function manually, since this is a callback        
-        require_once(DIR_EXTENSION . 'viabill/system/helper/viabill_constants.php');
-		require_once(DIR_EXTENSION . 'viabill/system/helper/viabill_helper.php');
+        // Load helper classes
+        $this->load->helper('extension/viabill/viabill_constants');
+        $this->load->helper('extension/viabill/viabill_services');
+        $this->load->helper('extension/viabill/viabill_helper');
+
+        ViaBillServices::setRegistry($this->registry);
 
         // Retrieve data from ViaBill, using various methods
-		$callbackData = null;
-		
-		// Method 1: Try OpenCart's request object
-		if (!empty($this->request->post)) {
-			$callbackData = $this->request->post;
-		}
-		// Method 2: Try raw POST data
-		else {
-			$rawData = file_get_contents('php://input');
-			
-			if (!empty($rawData)) {
-				// Try JSON decode
-				$jsonData = json_decode($rawData, true);
-				if (json_last_error() === JSON_ERROR_NONE) {
-					$callbackData = $jsonData;
-				}
-				// Try form-encoded data
-				else {
-					parse_str($rawData, $callbackData);
-				}
-			}
-			// Method 3: Fallback to $_POST
-			else if (!empty($_POST)) {
-				$callbackData = $_POST;
-			}
-		}
-		
-		if (empty($callbackData)) {			
-			ViaBillHelper::log('Received an callback request with empty data', 'error');
-			return;
-		}
+        $callbackData = null;
 
-        $order_id = $callbackData['orderNumber'] ?? 0;
-        $transactionId = $callbackData['transaction'] ?? '';
-        $status = $callbackData['status'] ?? '';  // e.g., 'APPROVED', 'CANCELLED', 'REJECTED'
-        
-        $this->load->model('checkout/order');        
-        $this->load->model('extension/viabill/payment/viabill');   
-        
-        if ($order_id && $transactionId) {
-            // first of all, verify that this is a valid callback request
-            $amount = $callbackData['amount'];
-            $currency = $callbackData['currency'];
-            $status = $callbackData['status'];
-            $time = $callbackData['time'];
+        // Method 1: Try OpenCart's request object
+        if (!empty($this->request->post)) {
+            $callbackData = $this->request->post;
+        }
+        // Method 2: Try raw POST data
+        else {
+            $rawData = file_get_contents('php://input');
 
-            $callback_signature = $callbackData['signature'];
-
-            $secret = $this->config->get('payment_viabill_secret_key') ?? '';
-
-            $validation_arguments = [
-                $transactionId,
-                $order_id,
-                $amount,
-                $currency,
-                $status,
-                $time,
-                $secret
-            ];
-                         
-            $calculated_signature = hash('sha256', implode('#', $validation_arguments));        
-            if ($callback_signature != $calculated_signature) {
-                $debug_str = print_r($callbackData, true);
-                ViaBillHelper::log('Received an invalid callback request:'.$debug_str, 'error');
-                return;
-            }
-
-            // Match the callback data with our stored transaction (to ensure it’s valid)
-            $query = $this->db->query("SELECT * FROM `" . DB_PREFIX . "viabill_transaction` WHERE order_id = " . (int)$order_id . " AND transaction_id = '" . $this->db->escape($transactionId) . "'");
-            if ($query->num_rows) {
-                // Determine new order status based on ViaBill status
-                $comment = 'ViaBill: ';
-                $notifyCustomer = true;
-                                
-                if ($status == 'APPROVED') {
-                    $payment_type = $this->config->get('payment_viabill_transaction_mode');
-
-                    // Payment completed (or at least authorized)
-                    $comment .= 'Payment successful.';
-                    // Set the new order status
-                    $newStatusId = null;
-                    if ($payment_type == 'authorize') {
-                        $comment .= ' (Authorized only, awaiting capture)';
-                        $newStatusId = $this->config->get('payment_viabill_authorize_order_status_id') ?: $this->config->get('config_order_status_id');
-                    } else {
-                        $capture_amount = $amount;          
-                                                                  
-                        $capture_data = [
-                            'apikey'      => $api_key,
-                            'secret'      => $secret,
-                            'transaction' => $transactionId,
-                            'amount'      => $amount,
-                            'currency'    => $currency
-                        ];
-                      
-                      	try {
-                            $result = $this->model_extension_payment_viabill->capturePayment($capture_data);
-                        } catch (Exception $e) {
-                            ViaBillHelper::log('Capture payment failed: ' . $e->getMessage(), 'error');
-                            $result = [
-                                'success' => false,
-                                'message' => 'Capture failed: ' . $e->getMessage()
-                            ];
-                        } catch (Error $e) {
-                            ViaBillHelper::log('Fatal error during capture: ' . $e->getMessage(), 'error');
-                            $result = [
-                                'success' => false,
-                                'message' => 'System error during capture: ' . $e->getMessage()
-                            ];
-                        }
-
-                        if ($result['success']) {                                 
-                            $this->model_extension_payment_viabill->updateTransactionAmounts($order_id, $capture_amount, null);
-                            $newStatusId = $this->config->get('payment_viabill_capture_order_status_id') ?: $this->config->get('config_order_status_id');
-                        
-                            // Update OpenCart order history with the determined status and comment
-                            // $comment = 'Payment was captured';
-                            $this->model_checkout_order->addOrderHistory($order_id, $newStatusId, $comment, $notifyCustomer);
-                        
-                        } else {
-                            ViaBillHelper::log('Capture was failed:'.$result['message'], 'error');
-                        }                        
-                    }                                        
-
-                    // Update transaction table status
-                    $this->db->query("UPDATE `" . DB_PREFIX . "viabill_transaction` SET status = 'PAID' WHERE order_id = " . (int)$order_id);
-                                                                 
-                    // (Optionally, if auth-only, set notifyCustomer = false to not send final email until capture)
-                } elseif ($status == 'CANCELLED') {
-                    $newStatusId = $this->getOrderStatusIdByName('Canceled') ?? $this->config->get('config_order_status_id');
-                    $comment .= 'Payment was cancelled.';
-                    $notifyCustomer = false;  // No need to notify for cancel in some cases
-                    $this->db->query("UPDATE `" . DB_PREFIX . "viabill_transaction` SET status = 'CANCELLED' WHERE order_id = " . (int)$order_id);
-                } elseif ($status == 'REJECTED') {
-                    $newStatusId = $this->getOrderStatusIdByName('Canceled') ?? $newStatusId;
-                    $comment .= 'Payment was rejected by the ViaBill Gateway or failed.';
-                    $notifyCustomer = false;
-                    $this->db->query("UPDATE `" . DB_PREFIX . "viabill_transaction` SET status = 'VOIDED' WHERE order_id = " . (int)$order_id);
-                } else {
-                    // Unknown status or error
-                    $comment .= 'Payment status: ' . $status;
+            if (!empty($rawData)) {
+                // Try JSON decode
+                $jsonData = json_decode($rawData, true);
+                if (json_last_error() === JSON_ERROR_NONE) {
+                    $callbackData = $jsonData;
                 }
-                
-                // Update OpenCart order history with the determined status and comment
-                $this->model_checkout_order->addOrderHistory($order_id, $newStatusId, $comment, $notifyCustomer);
+                // Try form-encoded data
+                else {
+                    parse_str($rawData, $callbackData);
+                }
+            }
+            // Method 3: Fallback to $_POST
+            else if (!empty($_POST)) {
+                $callbackData = $_POST;
             }
         }
 
-        // Respond to ViaBill if needed (some APIs expect a response, e.g., simple OK text or HTTP 200)        
-        http_response_code(200);
-        // echo "OK";
+        if (empty($callbackData) || !is_array($callbackData)) {
+            ViaBillHelper::log('Received a callback request with empty data', 'error');
+            $this->callbackResponse(400, 'ERROR');
+            return;
+        }
+
+        // All fields covered by the signature must be present as plain values.
+        $fields = [];
+        foreach (['transaction', 'orderNumber', 'amount', 'currency', 'status', 'time', 'signature'] as $field) {
+            if (!isset($callbackData[$field]) || !is_scalar($callbackData[$field])) {
+                ViaBillHelper::log('Received a callback request without the "' . $field . '" field', 'error');
+                $this->callbackResponse(400, 'ERROR');
+                return;
+            }
+            $fields[$field] = (string)$callbackData[$field]; // exactly as signed by ViaBill
+        }
+
+        $order_id = (int)$fields['orderNumber'];
+        $transactionId = $fields['transaction'];
+        $status = strtoupper($fields['status']);  // e.g., 'APPROVED', 'CANCELLED', 'REJECTED'
+
+        // Verify that this is a valid callback request. Without a configured
+        // secret the signature would be computable by anyone.
+        $secret = (string)($this->config->get('payment_viabill_secret_key') ?? '');
+
+        $validation_arguments = [
+            $fields['transaction'],
+            $fields['orderNumber'],
+            $fields['amount'],
+            $fields['currency'],
+            $fields['status'],
+            $fields['time'],
+            $secret
+        ];
+
+        $calculated_signature = hash('sha256', implode('#', $validation_arguments));
+
+        if (trim($secret) === '' || !$order_id || $transactionId === '' || !hash_equals($calculated_signature, $fields['signature'])) {
+            ViaBillHelper::log('Received an invalid callback request [order: ' . $order_id . '][transaction: ' . $transactionId . '][status: ' . $status . ']', 'error');
+            $this->callbackResponse(400, 'NOT VALID');
+            return;
+        }
+
+        // Match the callback data with our stored transaction (to ensure it's valid)
+        $query = $this->db->query("SELECT * FROM `" . DB_PREFIX . "viabill_transaction` WHERE `order_id` = '" . (int)$order_id . "' AND `transaction_id` = '" . $this->db->escape($transactionId) . "' LIMIT 1");
+
+        if (!$query->num_rows) {
+            ViaBillHelper::log('Callback for an unknown transaction [order: ' . $order_id . '][transaction: ' . $transactionId . ']', 'error');
+            $this->callbackResponse(400, 'NOT VALID');
+            return;
+        }
+
+        $transaction = $query->row;
+
+        // The approved amount and currency must be the ones the order was placed for.
+        $expectedAmount = number_format((float)$transaction['amount'], 2, '.', '');
+        $callbackAmount = number_format((float)$fields['amount'], 2, '.', '');
+
+        if ($expectedAmount !== $callbackAmount ||
+            ($fields['currency'] !== '' && strcasecmp($fields['currency'], (string)$transaction['currency']) !== 0)
+        ) {
+            ViaBillHelper::log('Callback amount/currency mismatch [order: ' . $order_id . '][expected: ' . $expectedAmount . ' ' . $transaction['currency'] . '][got: ' . $callbackAmount . ' ' . $fields['currency'] . ']', 'error');
+            $this->callbackResponse(400, 'NOT VALID');
+            return;
+        }
+
+        $this->load->model('checkout/order');
+        $this->load->model('extension/viabill/payment/viabill');
+
+        $order_info = $this->model_checkout_order->getOrder($order_id);
+
+        if (!$order_info) {
+            ViaBillHelper::log('Callback for a missing order #' . $order_id, 'error');
+            $this->callbackResponse(400, 'NOT VALID');
+            return;
+        }
+
+        $currentTxStatus = (string)$transaction['status'];
+        $isPaid = ($currentTxStatus === ViaBillConstants::TX_STATUS_PAID);
+        $isClosed = in_array($currentTxStatus, [ViaBillConstants::TX_STATUS_CANCELLED, ViaBillConstants::TX_STATUS_VOIDED], true);
+
+        // Order history comments are in the store's default language (this
+        // is a server-to-server request without a customer session).
+        $this->load->language('extension/viabill/payment/viabill');
+
+        $comment = '';
+        $merchantNote = '';  // added as a separate entry, never sent to the customer
+        $notifyCustomer = false;
+        $newStatusId = (int)$order_info['order_status_id'];
+        $newTxStatus = null;
+
+        if ($status == 'APPROVED') {
+            // Idempotency: this payment has already been processed.
+            if ($isPaid) {
+                $this->callbackResponse(200, 'OK');
+                return;
+            }
+
+            // Never re-open an order that has been cancelled or voided.
+            if ($isClosed) {
+                ViaBillHelper::log('Ignoring APPROVED callback for cancelled/voided transaction [order: ' . $order_id . '][transaction: ' . $transactionId . ']', 'error');
+                $this->callbackResponse(200, 'OK');
+                return;
+            }
+
+            $notifyCustomer = true;
+            $newTxStatus = ViaBillConstants::TX_STATUS_PAID;
+            $authorizeStatusId = (int)($this->config->get('payment_viabill_authorize_order_status_id') ?: $this->config->get('config_order_status_id'));
+
+            // Payment completed (or at least authorized)
+            if ($this->config->get('payment_viabill_transaction_mode') == 'authorize') {
+                $comment = $this->language->get('text_history_authorized');
+                $newStatusId = $authorizeStatusId;
+            } else {
+                try {
+                    $result = $this->model_extension_viabill_payment_viabill->capturePayment($transactionId, $expectedAmount, (string)$transaction['currency']);
+                } catch (\Throwable $e) {
+                    $result = ['success' => false, 'message' => $e->getMessage()];
+                }
+
+                if ($result['success']) {
+                    $this->model_extension_viabill_payment_viabill->updateTransactionAmounts($order_id, (float)$expectedAmount, null);
+                    $comment = $this->language->get('text_history_captured');
+                    $newStatusId = (int)($this->config->get('payment_viabill_capture_order_status_id') ?: $this->config->get('config_order_status_id'));
+                } else {
+                    // The payment is approved (authorized) at ViaBill even
+                    // though the automatic capture failed. The customer is
+                    // told the payment succeeded; the capture failure is a
+                    // note for the merchant only.
+                    ViaBillHelper::log('Automatic capture failed for order #' . $order_id . ': ' . $result['message'], 'error');
+                    $comment = $this->language->get('text_history_approved');
+                    $merchantNote = $this->language->get('text_history_capture_failed');
+                    $newStatusId = $authorizeStatusId;
+                }
+            }
+        } elseif ($status == 'CANCELLED' || $status == 'REJECTED') {
+            // Idempotency: already cancelled or voided.
+            if ($isClosed) {
+                $this->callbackResponse(200, 'OK');
+                return;
+            }
+
+            // Never cancel an order whose payment has already been approved;
+            // log it for manual review instead.
+            if ($isPaid) {
+                ViaBillHelper::log('Ignoring ' . $status . ' callback for an already approved transaction [order: ' . $order_id . '][transaction: ' . $transactionId . ']', 'error');
+                $this->callbackResponse(200, 'OK');
+                return;
+            }
+
+            $newStatusId = (int)($this->getOrderStatusIdByName('Canceled') ?? $this->config->get('config_order_status_id'));
+
+            if ($status == 'CANCELLED') {
+                $comment = $this->language->get('text_history_cancelled');
+                $newTxStatus = ViaBillConstants::TX_STATUS_CANCELLED;
+            } else {
+                $comment = $this->language->get('text_history_rejected');
+                $newTxStatus = ViaBillConstants::TX_STATUS_VOIDED;
+            }
+        } else {
+            // Unknown status: record it without changing the order status.
+            $comment = sprintf($this->language->get('text_history_status'), $status);
+        }
+
+        if ($newTxStatus !== null) {
+            $this->db->query("UPDATE `" . DB_PREFIX . "viabill_transaction` SET `status` = '" . $this->db->escape($newTxStatus) . "', `date_modified` = NOW() WHERE `order_id` = '" . (int)$order_id . "' AND `transaction_id` = '" . $this->db->escape($transactionId) . "'");
+        }
+
+        // Update OpenCart order history with the determined status and comment
+        if ($newStatusId) {
+            $this->model_checkout_order->addHistory($order_id, $newStatusId, $comment, $notifyCustomer);
+
+            if ($merchantNote !== '') {
+                $this->model_checkout_order->addHistory($order_id, $newStatusId, $merchantNote, false);
+            }
+        }
+
+        $this->callbackResponse(200, 'OK');
     }
-    
+
+    /**
+     * Send the answer to a ViaBill callback request.
+     */
+    private function callbackResponse(int $code, string $body): void {
+        http_response_code($code);
+        $this->response->setOutput($body);
+    }
+
     /**
      * Cancel return endpoint.
      * This can handle when a customer cancels payment on ViaBill and is redirected back.
@@ -415,6 +455,7 @@ class Viabill extends \Opencart\System\Engine\Controller {
      */
     public function cancel(): void {
         // Maybe add a message that payment was cancelled and redirect to checkout page or cart.
+        $this->load->language('extension/viabill/payment/viabill');
         $this->session->data['error'] = $this->language->get('error_cancelled');
         $this->response->redirect($this->url->link('checkout/checkout', '', true));
     }
@@ -632,21 +673,29 @@ class Viabill extends \Opencart\System\Engine\Controller {
     
     private function getViabillPricetagScript(array $params, $priceTag_script): string {
         // 1) Build the <div> with all data- attributes
-        $attrs = [
-            'class="viabill-pricetag"',
-            'data-view="' . ($params['target']        ?? 'product') . '"',
-            'data-price="' . ($params['price']         ?? '') . '"',
-            'data-dynamic-price="' . ($params['dynamic_price'] ?? '') . '"',
-            'data-price-decimal-separator="' . ($params['decimal_separator'] ?? '') . '"',
-            'data-dynamic-price-triggers="' . ($params['trigger'] ?? '') . '"',
-            'data-dynamic-price-trigger-delay="' . ($params['trigger_delay'] ?? '') . '"',
-            'data-currency="' . ($params['currency'] ?? '') . '"',
-            'data-country-code="' . ($params['country']  ?? '') . '"',
-            'data-language="' . ($params['language'] ?? '') . '"',
-        ];                
-  
-        // Remove any empty attributes
-        $attrs = array_filter($attrs, fn($a) => strpos($a, '=""') === false);
+        // Only known views are used (the value also ends up in a class name).
+        $target = in_array($params['target'] ?? '', ['product', 'basket', 'payment'], true) ? $params['target'] : 'product';
+
+        $attribute_values = [
+            'data-view'                        => $target,
+            'data-price'                       => $params['price'] ?? '',
+            'data-dynamic-price'               => $params['dynamic_price'] ?? '',
+            'data-price-decimal-separator'     => $params['decimal_separator'] ?? '',
+            'data-dynamic-price-triggers'      => $params['trigger'] ?? '',
+            'data-dynamic-price-trigger-delay' => $params['trigger_delay'] ?? '',
+            'data-currency'                    => $params['currency'] ?? '',
+            'data-country-code'                => $params['country'] ?? '',
+            'data-language'                    => $params['language'] ?? '',
+        ];
+
+        // Settings values are escaped for the HTML attribute; empty attributes are left out.
+        $attrs = ['class="viabill-pricetag"'];
+        foreach ($attribute_values as $name => $value) {
+            $value = is_scalar($value) ? (string)$value : '';
+            if ($value !== '') {
+                $attrs[] = $name . '="' . htmlspecialchars($value, ENT_QUOTES, 'UTF-8') . '"';
+            }
+        }
 
         $alignment_wrapper_class = '';        
         switch ($params['alignment']) {
@@ -659,10 +708,17 @@ class Viabill extends \Opencart\System\Engine\Controller {
                 // Do nothing.
         }        
   
-        $pricetagDiv = '<div class="viabill-pricetag-'.$params['target'].'-wrapper '.$alignment_wrapper_class.'"><div ' . implode(' ', $attrs) . '></div></div>';
-  
+        $pricetagDiv = '<div class="viabill-pricetag-'.$target.'-wrapper '.$alignment_wrapper_class.'"><div ' . implode(' ', $attrs) . '></div></div>';
+
         // Grab placement parameters, with safe defaults
-        $appendSelector = addslashes($params['append_selector'] ?? '.price');
+        $appendSelector = (string)($params['append_selector'] ?? '.price');
+
+        // Values placed inside the inline <script> are JSON encoded with all
+        // HTML-significant characters escaped, so they cannot break out of the
+        // string or the script element.
+        $jsonFlags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE;
+        $pricetagDivJs = json_encode($pricetagDiv, $jsonFlags);
+        $appendSelectorJs = json_encode($appendSelector, $jsonFlags);
         $insertAfter    = !empty($params['append_after'])   ? 'true'  : 'false';
         $insertFirst    = !empty($params['append_first'])   ? 'true'  : 'false';
 
@@ -673,8 +729,8 @@ class Viabill extends \Opencart\System\Engine\Controller {
         $js = <<<JS
 <script>
 jQuery(function($){
-    var pricetagHtml  = '{$pricetagDiv}';
-    var selector      = '{$appendSelector}';
+    var pricetagHtml  = {$pricetagDivJs};
+    var selector      = {$appendSelectorJs};
     var after         = {$insertAfter};
     var firstOnly     = {$insertFirst};
 
@@ -737,8 +793,12 @@ div.viabill_wrapper_alignment_center .viabill-pricetag iframe.viabill {
 }
 </style>
 CSS;    
-        if (!empty($params['width'])) {
-            $css .= '<style> div.viabill-pricetag-'.$params['target'].'-wrapper div.viabill-pricetag { width: '.$params['width'].' !important;} </style>';
+        // Only a plain CSS length (e.g. "300px", "80%", "20em") is accepted as width.
+        $target = in_array($params['target'] ?? '', ['product', 'basket', 'payment'], true) ? $params['target'] : 'product';
+        $width = trim((string)($params['width'] ?? ''));
+
+        if ($width !== '' && preg_match('/^\d+(\.\d+)?(px|%|em|rem|vw)$/i', $width)) {
+            $css .= '<style> div.viabill-pricetag-'.$target.'-wrapper div.viabill-pricetag { width: '.$width.' !important;} </style>';
         }
 
         return $css;

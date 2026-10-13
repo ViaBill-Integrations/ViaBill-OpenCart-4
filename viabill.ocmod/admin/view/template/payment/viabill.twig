@@ -84,6 +84,15 @@
                   {% endif %}
                 </div>
               </div>
+
+              {% if credentials_missing and signup_url %}
+                <div class="alert alert-info viabill-signup-note">
+                  <i class="fa-solid fa-user-plus"></i>
+                  <strong>{{ text_signup_title }}</strong>
+                  {{ text_signup_text }}
+                  <a href="{{ signup_url }}" target="_blank" rel="noopener noreferrer">{{ text_signup_link }}</a>
+                </div>
+              {% endif %}
             </fieldset>
             
             <div class="row mb-3">

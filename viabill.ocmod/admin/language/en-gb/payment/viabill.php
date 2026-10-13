@@ -81,6 +81,10 @@ $_['text_credentials'] = 'ViaBill Account Credentials';
 $_['text_credentials_intro'] = 'Enter your ViaBill API key, API secret and PriceTag script. You can find these values in your ViaBill merchant account. All three values are required for the payment gateway and the PriceTags to work.';
 $_['text_credentials_missing'] = 'Your ViaBill account credentials are missing. Please enter your API key, API secret and PriceTag script in the "ViaBill Account Credentials" section below.';
 $_['help_secret_key_saved'] = 'An API secret is already saved (hidden for security). Leave this field empty to keep it.';
+// Signup note shown below the credentials while they are missing
+$_['text_signup_title'] = 'No ViaBill account credentials yet?';
+$_['text_signup_text'] = 'Fill in the ViaBill online signup form to get your API key, API secret and PriceTag script.';
+$_['text_signup_link'] = 'Go to the ViaBill signup form';
 
 // Buttons
 $_['button_save']            = 'Save';
@@ -90,3 +94,15 @@ $_['button_cancel']          = 'Cancel';
 $_['error_permission']       = 'Warning: You do not have permission to modify ViaBill Payments!';
 $_['error_api_key']          = 'API Key is required!';
 $_['error_secret_key']       = 'Secret Key is required!';
+$_['error_amount']           = 'Please enter a valid amount greater than 0.';
+
+// Order history comments and payment action messages
+$_['error_no_transaction'] = 'No ViaBill transaction was found for this order.';
+$_['error_capture_amount_range'] = 'The capture amount must be greater than 0 and at most %s.';
+$_['error_refund_amount_range'] = 'The refund amount must be greater than 0 and at most %s.';
+$_['error_void_captured'] = 'The payment has already been (partly) captured and can no longer be voided. Use a refund instead.';
+$_['error_api_http'] = 'ViaBill answered with HTTP %d.';
+$_['error_api_unreachable'] = 'ViaBill could not be reached.';
+$_['text_history_captured'] = 'ViaBill payment captured: %s %s';
+$_['text_history_refunded'] = 'ViaBill payment refunded: %s %s';
+$_['text_history_voided'] = 'ViaBill authorization voided';
