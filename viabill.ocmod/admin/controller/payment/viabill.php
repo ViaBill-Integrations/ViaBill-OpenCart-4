@@ -102,6 +102,28 @@ class Viabill extends \Opencart\System\Engine\Controller {
         $data['payment_viabill_hide_bnpl'] = $this->config->get('payment_viabill_hide_bnpl') ?? 0;
         $data['payment_viabill_hide_tbyb'] = $this->config->get('payment_viabill_hide_tbyb') ?? 1;
 
+        // Legal note (credit warning) at the checkout. It is enabled unless the
+        // merchant switches it off; an empty text means the default text.
+        // A setting that was never saved is returned as '' (or null).
+        $legal_note_status = $this->config->get('payment_viabill_legal_note_status');
+        $data['payment_viabill_legal_note_status'] = ($legal_note_status === null || $legal_note_status === '') ? 1 : (int)$legal_note_status;
+        $legal_note_text = $this->config->get('payment_viabill_legal_note_text');
+        $data['payment_viabill_legal_note_text'] = is_array($legal_note_text) ? $legal_note_text : [];
+        $data['payment_viabill_legal_note_language'] = $this->config->get('payment_viabill_legal_note_language') ?: 'auto';
+
+        $this->load->model('localisation/language');
+        $data['languages'] = [];
+        foreach ($this->model_localisation_language->getLanguages() as $language) {
+            if (empty($language['image'])) {
+                $language['image'] = 'language/' . $language['code'] . '/' . $language['code'] . '.png';
+            }
+            $data['languages'][] = $language;
+        }
+
+        $data['text_legal_note_default_value'] = ViaBillHelper::getLegalNoteDefaultText(
+            ViaBillHelper::getLegalNoteLanguageCode($data['payment_viabill_legal_note_language'], $this->config->get('config_language'))
+        );
+
         // Add Geo Zone configuration
         $data['payment_viabill_geo_zone_id'] = $this->config->get('payment_viabill_geo_zone_id') ?? 0;
 

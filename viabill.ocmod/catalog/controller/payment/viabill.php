@@ -54,7 +54,11 @@ class Viabill extends \Opencart\System\Engine\Controller {
         
         // Check if the module is operating in test mode
         $data['test_mode'] = $this->config->get('payment_viabill_test') ? true : false;
-        
+
+        // Legal note (credit warning) and its stylesheet, which merchants can override
+        $data['legal_note'] = $this->model_extension_viabill_payment_viabill->getLegalNote();
+        $data['legal_note_css'] = $this->config->get('config_url') . 'extension/viabill/catalog/view/stylesheet/legal-note.css';
+
         // Define the action URL to which the confirm button will send the AJAX request.
         // This should point to your "confirm" method in this controller.
         $data['action'] = $this->url->link('extension/viabill/payment/viabill.confirm', '', true);

@@ -4,7 +4,13 @@
       <i class="fa-solid fa-circle-info"></i> {{ text_test_mode_warning }}
     </div>
   {% endif %}
-  
+
+  {% if legal_note %}
+    {# legal_note is sanitized HTML, see the catalog model getLegalNote() #}
+    <link href="{{ legal_note_css }}" rel="stylesheet" />
+    <div class="viabill-legal-note">{{ legal_note }}</div>
+  {% endif %}
+
   <div class="text-end">
     <button type="button" id="button-confirm" class="btn btn-primary">{{ button_confirm }}</button>
   </div>
