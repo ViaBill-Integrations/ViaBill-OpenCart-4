@@ -57,7 +57,12 @@ class Viabill extends \Opencart\System\Engine\Controller {
 
         // Legal note (credit warning) and its stylesheet, which merchants can override
         $data['legal_note'] = $this->model_extension_viabill_payment_viabill->getLegalNote();
+        $data['legal_note_style'] = $this->model_extension_viabill_payment_viabill->getLegalNoteStyle();
         $data['legal_note_css'] = $this->config->get('config_url') . 'extension/viabill/catalog/view/stylesheet/legal-note.css';
+        // "You are paying with [ViaBill]" before the legal note: at the order
+        // confirmation it is further away from the payment method choice.
+        $data['legal_note_paying_with'] = $this->model_extension_viabill_payment_viabill->getLegalNotePayingWith();
+        $data['legal_note_logo'] = $this->config->get('config_url') . 'extension/viabill/catalog/view/image/viabill/viabill-logo-white.png';
 
         // Define the action URL to which the confirm button will send the AJAX request.
         // This should point to your "confirm" method in this controller.
